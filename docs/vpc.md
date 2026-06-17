@@ -244,6 +244,150 @@ that resolve the AWS service name to a private IP).
 
 ---
 
+## How Routing Decisions Are Made
+
+Every packet leaving an instance goes through this process before it moves anywhere:
+
+**Step 1 — Look up the subnet's route table**
+
+The VPC router checks the route table associated with the source instance's subnet.
+It evaluates every route entry and picks the one with the longest matching prefix.
+
+```
+Packet destination: 8.8.8.8
+
+Route table entries:
+  10.0.0.0/16  → local          (no match — 8.8.8.8 is not in 10.0.0.0/16)
+  0.0.0.0/0    → igw-xxxxxxxx   (match — send to IGW)
+
+Result: packet forwarded to the Internet Gateway
+```
+
+```
+Packet destination: 10.0.2.20
+
+Route table entries:
+  10.0.0.0/16  → local          (match — 10.0.2.20 is inside 10.0.0.0/16)
+  0.0.0.0/0    → igw-xxxxxxxx   (also matches, but /16 is more specific than /0)
+
+Result: packet stays inside the VPC via the local route
+```
+
+The `local` route always wins over `0.0.0.0/0` for intra-VPC traffic because `/16`
+is a longer (more specific) prefix than `/0`. This is called **longest prefix match**.
+
+**Step 2 — Forward to the target**
+
+The target is the next hop — IGW, NAT Gateway, VPC peering connection, or `local`.
+`local` means the VPC router handles delivery directly to the destination ENI.
+All other targets hand the packet off to that resource.
+
+**Step 3 — Routing does not enforce security**
+
+The route table only answers the question "where does this packet go?"
+It does not check whether the destination should accept it. That's the security group's job.
+A packet can be perfectly routable and still get dropped — routing and firewalling are separate.
+
+### What happens when there's no matching route
+
+If no route matches the destination, the packet is silently dropped by the VPC router.
+This is why private subnets with no `0.0.0.0/0` entry can never reach the internet —
+the router has nowhere to send the packet, so it discards it before it ever hits a firewall.
+
+---
+
+## How Traffic Is Allowed and Blocked
+
+Routing determines if a path exists. Security controls determine if the traffic is
+permitted to use that path. A packet must pass both to be delivered.
+
+### Full inbound path — internet to web tier
+
+```
+Browser → http://54.x.x.x (web-tier public IP) port 80
+
+1. DNS resolves to the web tier's public IP: 54.x.x.x
+
+2. Packet arrives at the Internet Gateway
+   IGW translates 54.x.x.x → 10.0.1.10 (web tier private IP)
+   Checks: does this VPC have a route for traffic to 10.0.1.10? Yes (local route). Continue.
+
+3. NACL — evaluated at the public subnet boundary (inbound)
+   Default NACL: rule 100 → allow all → PASS
+
+4. Security Group (sg-web) — evaluated at the web tier ENI (inbound)
+   Rule: TCP 80 from 0.0.0.0/0 → ALLOW
+   Packet delivered to the web tier EC2.
+
+5. Web tier EC2 receives the request and responds.
+
+6. Response packet leaves the web tier
+   Security Group: stateful — return traffic automatically allowed, no outbound rule check.
+   NACL: stateless — outbound rule 100 allows all → PASS.
+   IGW translates 10.0.1.10 → 54.x.x.x and sends response to browser.
+```
+
+### Inter-tier path — web tier to app tier
+
+```
+Web tier (10.0.1.10) → app tier (10.0.2.20) port 3000
+
+1. Route table lookup: 10.0.2.20 matches 10.0.0.0/16 → local route. No IGW involved.
+
+2. NACL — evaluated at the public subnet boundary (outbound from web tier)
+   Default NACL: allow all → PASS
+
+3. Security Group (sg-app) — evaluated at the app tier ENI (inbound)
+   Rule: TCP 3000 from sg-web → does the web tier instance carry sg-web? YES → ALLOW
+   Packet delivered to the app tier EC2.
+
+4. App tier responds.
+   Security Group: stateful — return traffic auto-allowed.
+   Route: local → back to 10.0.1.10.
+```
+
+### Blocked path — internet to app tier port 3000
+
+```
+Attacker → http://<app-public-ip>:3000
+
+1. Packet arrives at the IGW. IGW translates public IP → 10.0.2.20.
+
+2. Route table: 10.0.2.20 is in 10.0.0.0/16 → local. Routable — no issue here.
+
+3. NACL: default allow all → PASS. (Routing and NACL are fine — the traffic gets this far.)
+
+4. Security Group (sg-app) — inbound rules:
+   Rule 1: TCP 3000 from sg-web — attacker's connection is NOT from an instance with sg-web → no match
+   Rule 2: TCP 22 from YOUR_IP/32 — wrong port → no match
+   No rule matches → implicit DENY. Packet dropped.
+
+The attacker sees a timeout. The packet reached the subnet and was evaluated,
+but the SG had no matching allow rule, so it was silently dropped at the ENI.
+```
+
+The key point: **routing got the packet there, but the security group stopped it**.
+These are two independent controls. You need both to reason about whether traffic flows.
+
+### The implicit deny
+
+Security groups are default-deny. If no rule matches an inbound packet, it is dropped —
+there is no need to write an explicit deny rule. This is the opposite of NACLs, where
+the default is allow-all and you write explicit denies to block traffic.
+
+This means the safest state for a security group is an empty inbound rule set — nothing
+gets in until you deliberately open a port. Every port you add is a conscious decision
+to increase the attack surface.
+
+### Why timeouts, not rejections
+
+When a security group drops a packet it does so silently — it doesn't send back a TCP RST
+or ICMP port-unreachable. The sender waits for a response that never comes, which is why
+blocked connections time out instead of immediately failing. This is intentional: a RST
+tells the attacker the port exists and is filtered; silence reveals nothing.
+
+---
+
 ## Lab VPC Summary
 
 | Resource | Value | Purpose |
