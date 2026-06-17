@@ -2,6 +2,7 @@
 // When running locally, point it at localhost:3000.
 const API_BASE = window.API_BASE || 'http://localhost:3000';
 
+
 const badge = document.getElementById('tier-badge');
 const taskForm = document.getElementById('task-form');
 const taskInput = document.getElementById('task-input');

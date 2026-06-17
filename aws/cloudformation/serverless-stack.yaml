@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CIT 270 Serverless Extension — visitor counter built with Lambda, DynamoDB,
+  API Gateway, and CloudWatch. Deploy after the base lab-stack.yaml.
+  Deploy with: aws cloudformation deploy --template-file serverless-stack.yaml --stack-name cit270-serverless --capabilities CAPABILITY_IAM
+
+Parameters:
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    AllowedValues: [1, 3, 7, 14, 30]
+    Description: CloudWatch log retention period (keep short for student accounts)
+
+  ErrorAlarmEmail:
+    Type: String
+    Default: ''
+    Description: "(Optional) Email address for Lambda error alerts"
+
+Resources:
+
+  # ─── DynamoDB ───────────────────────────────────────────────────────────────
+
+  VisitorTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cit270-visitor-counter
+      BillingMode: PAY_PER_REQUEST
+      TableClass: STANDARD
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      Tags:
+        - Key: Lab
+          Value: cit270
+
+  # ─── IAM ────────────────────────────────────────────────────────────────────
+
+  LambdaTrustPolicy:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cit270-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAndLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowDynamoDBVisitorTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt VisitorTable.Arn
+              - Sid: AllowCloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cit270-visitor-counter*'
+      Tags:
+        - Key: Lab
+          Value: cit270
+
+  # ─── Lambda ─────────────────────────────────────────────────────────────────
+
+  VisitorCounterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cit270-visitor-counter
+      Description: Increments and returns the visitor count stored in DynamoDB
+      Runtime: python3.12
+      Handler: visitor_counter.handler
+      Role: !GetAtt LambdaTrustPolicy.Arn
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref VisitorTable
+      Code:
+        ZipFile: |
+          import json, os, boto3
+          from botocore.exceptions import ClientError
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table(os.environ['TABLE_NAME'])
+          def handler(event, context):
+              http_method = event.get('httpMethod', 'GET')
+              if http_method == 'OPTIONS':
+                  return {'statusCode': 204, 'headers': {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}, 'body': ''}
+              if http_method != 'GET':
+                  return {'statusCode': 405, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Method not allowed'})}
+              try:
+                  result = table.update_item(Key={'pk': 'visitor_count'}, UpdateExpression='ADD visit_count :inc', ExpressionAttributeValues={':inc': 1}, ReturnValues='UPDATED_NEW')
+                  count = int(result['Attributes']['visit_count'])
+                  return {'statusCode': 200, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'count': count})}
+              except ClientError as e:
+                  print(f"DynamoDB error: {e.response['Error']['Message']}")
+                  return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Failed to update visitor count'})}
+      Tags:
+        - Key: Lab
+          Value: cit270
+
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt VisitorCounterFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${VisitorApi}/*'
+
+  # ─── API Gateway ────────────────────────────────────────────────────────────
+
+  VisitorApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: cit270-visitor-api
+      Description: RESTful API for the visitor counter — fronts the Lambda function
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Tags:
+        - Key: Lab
+          Value: cit270
+
+  VisitorsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref VisitorApi
+      ParentId: !GetAtt VisitorApi.RootResourceId
+      PathPart: visitors
+
+  VisitorsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref VisitorApi
+      ResourceId: !Ref VisitorsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${VisitorCounterFunction.Arn}/invocations
+
+  VisitorsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref VisitorApi
+      ResourceId: !Ref VisitorsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 204}'
+        IntegrationResponses:
+          - StatusCode: '204'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+        - StatusCode: '204'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - VisitorsGetMethod
+      - VisitorsOptionsMethod
+    Properties:
+      RestApiId: !Ref VisitorApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref VisitorApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+      Description: Production stage
+      MethodSettings:
+        - ResourcePath: /visitors
+          HttpMethod: GET
+          LoggingLevel: INFO
+          MetricsEnabled: true
+          DataTraceEnabled: false
+
+  # ─── CloudWatch ─────────────────────────────────────────────────────────────
+
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${VisitorCounterFunction}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cit270-lambda-errors
+      AlarmDescription: Fires when the visitor counter Lambda throws any errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref VisitorCounterFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ApiGateway4xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cit270-apigw-4xx
+      AlarmDescription: Client error rate on the visitor API exceeds 10% in a 5-minute window
+      Namespace: AWS/ApiGateway
+      MetricName: 4XXError
+      Dimensions:
+        - Name: ApiName
+          Value: cit270-visitor-api
+        - Name: Stage
+          Value: prod
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0.10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiEndpoint:
+    Description: "GET this URL to increment and read the visitor count"
+    Value: !Sub 'https://${VisitorApi}.execute-api.${AWS::Region}.amazonaws.com/prod/visitors'
+
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref VisitorTable
+
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref VisitorCounterFunction
+
+  LambdaLogGroup:
+    Description: CloudWatch log group for Lambda output
+    Value: !Ref LambdaLogGroup
