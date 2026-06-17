@@ -1,8 +1,24 @@
-# CIT 270 — AWS Full-Stack Security Lab
+# CIT 270 — AWS Security Lab
 
-A hands-on lab that builds a two-tier web application on AWS EC2 and uses
-**Security Groups as virtual firewalls** to control traffic between tiers.
-IAM roles enforce least-privilege access for the EC2 instances themselves.
+Lab documentation from CIT 270. Covers building a two-tier web application on AWS
+and securing it with Security Groups, IAM, VPC networking, and S3 bucket policies.
+The focus is on how AWS enforces network and access controls at the infrastructure level.
+
+---
+
+## What I Learned
+
+- How **Security Groups** act as stateful firewalls attached to individual EC2 instances,
+  and why referencing a SG as a source is more reliable than using a CIDR block
+- How **IAM roles and trust policies** give EC2 instances scoped AWS permissions
+  without hardcoding credentials, and how an explicit `Deny` beats any `Allow`
+- How **VPC networking** — subnets, route tables, and an Internet Gateway — determines
+  what traffic can even reach an instance before the SG fires
+- The difference between **stateful (SG) and stateless (NACL)** firewalls and when each is appropriate
+- How **S3 bucket policies and Block Public Access** control who can read or write objects,
+  and why a misconfigured bucket is one of the most common AWS security incidents
+- The **defense-in-depth** model: IGW → NACL → Security Group → IAM, and how each
+  layer limits blast radius independently of the others
 
 ---
 
@@ -27,28 +43,46 @@ Internet
 │   Public subnet*        │  blocks: 3000 from internet
 └─────────────────────────┘
 
-* Both instances use the same public subnet in this lab for simplicity.
-  In production the app tier would sit in a private subnet behind a NAT gateway.
+* In production the app tier sits in a private subnet behind a NAT gateway.
 ```
 
-**Key firewall rule:** The app tier's port 3000 is open only to the `sg-web` security group,
-not to the internet. Trying to hit `http://<app-public-ip>:3000` from a browser fails.
+The core firewall rule: the app tier's port 3000 source is set to `sg-web` (a security group
+reference, not a CIDR). Any connection that doesn't originate from an instance carrying
+`sg-web` is dropped at the hypervisor — the OS never sees the packet.
 
 ---
 
-## Lab Objectives
+## Documentation
 
-1. Launch two EC2 instances with distinct security groups
-2. Observe how SG rules act as stateful firewalls between tiers
-3. Attach an IAM instance role (least-privilege) to each instance
-4. Deploy a Node.js API (app tier) and nginx frontend (web tier)
-5. Verify firewall rules by intentionally breaking and restoring them
+| Document | Contents |
+|----------|---------|
+| [docs/lab-guide.md](docs/lab-guide.md) | IAM, VPC, security group, and EC2 configuration steps with firewall verification exercises |
+| [docs/aws-firewall-reference.md](docs/aws-firewall-reference.md) | All SG rules, IAM permissions, route tables, and a full traffic matrix |
+| [docs/s3-security.md](docs/s3-security.md) | S3 bucket policies, Block Public Access, encryption, and access control |
+| [docs/security-analysis.md](docs/security-analysis.md) | Threat model, IAM reasoning, IMDSv2, and defense-in-depth breakdown |
+| [docs/nacl-vs-sg.md](docs/nacl-vs-sg.md) | Stateful vs. stateless firewalls, rule evaluation order, packet walkthrough |
 
 ---
 
-## Quick Start
+## Repository Structure
 
-### Option A — CloudFormation (automated)
+```
+├── app/
+│   ├── frontend/          Static web UI — used to generate traffic for firewall testing
+│   └── backend/           Node.js API — runs on the app tier EC2
+├── aws/
+│   ├── cloudformation/    One-command stack deploy (VPC + SGs + IAM + EC2)
+│   ├── iam/               IAM role, trust policy, and student policy JSON
+│   ├── scripts/           EC2 user-data bootstrap scripts
+│   └── security-groups/   Annotated SG rule reference
+└── docs/                  Lab writeups and security reference docs
+```
+
+---
+
+## Deploy
+
+**CloudFormation (one command):**
 
 ```bash
 aws cloudformation deploy \
@@ -60,63 +94,12 @@ aws cloudformation deploy \
     YourIP=$(curl -s ifconfig.me)/32
 ```
 
-Stack outputs give you the web tier public IP and app tier private IP.
-
-### Option B — Manual (follow the lab guide)
-
-See [docs/lab-guide.md](docs/lab-guide.md) for step-by-step console instructions.
-
----
-
-## Documentation
-
-| Document | Contents |
-|----------|---------|
-| [docs/lab-guide.md](docs/lab-guide.md) | Step-by-step IAM, VPC, security group, and EC2 setup with firewall verification exercises |
-| [docs/aws-firewall-reference.md](docs/aws-firewall-reference.md) | Full rule tables for every SG, IAM policy, route table, and traffic matrix in one place |
-| [docs/security-analysis.md](docs/security-analysis.md) | Threat model, IAM reasoning, IMDSv2, and defense-in-depth breakdown |
-| [docs/nacl-vs-sg.md](docs/nacl-vs-sg.md) | Stateful vs. stateless firewalls, rule evaluation order, and hands-on NACL exercise |
-
-## Repository Structure
-
-```
-├── app/
-│   ├── frontend/          Static web UI — used to generate verifiable traffic
-│   └── backend/           Node.js API — runs on the app tier EC2
-├── aws/
-│   ├── cloudformation/    One-command stack deploy (VPC + SGs + IAM + EC2)
-│   ├── iam/               IAM role, trust policy, and student policy JSON
-│   ├── scripts/           EC2 user-data bootstrap scripts
-│   └── security-groups/   Annotated SG rule reference
-└── docs/                  All security and firewall documentation (see table above)
-```
+**Manual setup:** follow [docs/lab-guide.md](docs/lab-guide.md).
 
 ---
 
 ## Prerequisites
 
 - AWS Academy / Student account with EC2 and IAM permissions
-- AWS CLI configured (`aws configure`) **or** AWS Management Console
+- AWS CLI configured (`aws configure`) or AWS Management Console access
 - A key pair created in your target region
-- Git
-
----
-
-## Running Locally (without AWS)
-
-```bash
-# App tier
-cd app/backend
-npm install
-node server.js          # API on http://localhost:3000
-
-# Web tier (open in browser — no server needed)
-open app/frontend/index.html
-# The JS defaults API_BASE to http://localhost:3000
-```
-
----
-
-## License
-
-MIT — free to use and adapt for coursework.
