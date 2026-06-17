@@ -68,21 +68,27 @@ See [docs/lab-guide.md](docs/lab-guide.md) for step-by-step console instructions
 
 ---
 
+## Documentation
+
+| Document | Contents |
+|----------|---------|
+| [docs/lab-guide.md](docs/lab-guide.md) | Step-by-step IAM, VPC, security group, and EC2 setup with firewall verification exercises |
+| [docs/aws-firewall-reference.md](docs/aws-firewall-reference.md) | Full rule tables for every SG, IAM policy, route table, and traffic matrix in one place |
+| [docs/security-analysis.md](docs/security-analysis.md) | Threat model, IAM reasoning, IMDSv2, and defense-in-depth breakdown |
+| [docs/nacl-vs-sg.md](docs/nacl-vs-sg.md) | Stateful vs. stateless firewalls, rule evaluation order, and hands-on NACL exercise |
+
 ## Repository Structure
 
 ```
 ├── app/
-│   ├── frontend/          Static web UI (HTML, CSS, vanilla JS)
-│   └── backend/           Node.js + Express API (SQLite)
+│   ├── frontend/          Static web UI — used to generate verifiable traffic
+│   └── backend/           Node.js API — runs on the app tier EC2
 ├── aws/
-│   ├── cloudformation/    One-command stack deploy
-│   ├── iam/               IAM role and policy JSON files
+│   ├── cloudformation/    One-command stack deploy (VPC + SGs + IAM + EC2)
+│   ├── iam/               IAM role, trust policy, and student policy JSON
 │   ├── scripts/           EC2 user-data bootstrap scripts
-│   └── security-groups/   SG rule reference and lab exercises
-└── docs/
-    ├── lab-guide.md        Step-by-step manual setup
-    ├── security-analysis.md  Firewall analysis writeup
-    └── nacl-vs-sg.md       NACLs vs. Security Groups comparison
+│   └── security-groups/   Annotated SG rule reference
+└── docs/                  All security and firewall documentation (see table above)
 ```
 
 ---
