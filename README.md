@@ -12,8 +12,8 @@ The focus is on how AWS enforces network and access controls at the infrastructu
   and why referencing a SG as a source is more reliable than using a CIDR block
 - How **IAM roles and trust policies** give EC2 instances scoped AWS permissions
   without hardcoding credentials, and how an explicit `Deny` beats any `Allow`
-- How **VPC networking** — subnets, route tables, and an Internet Gateway — determines
-  what traffic can even reach an instance before the SG fires
+- How **VPC networking** — CIDR blocks, subnets, route tables, Internet Gateways, NAT Gateways,
+  and VPC Endpoints — controls what traffic can even reach an instance before the SG fires
 - The difference between **stateful (SG) and stateless (NACL)** firewalls and when each is appropriate
 - How **S3 bucket policies and Block Public Access** control who can read or write objects,
   and why a misconfigured bucket is one of the most common AWS security incidents
@@ -58,6 +58,7 @@ reference, not a CIDR). Any connection that doesn't originate from an instance c
 |----------|---------|
 | [docs/lab-guide.md](docs/lab-guide.md) | IAM, VPC, security group, and EC2 configuration steps with firewall verification exercises |
 | [docs/aws-firewall-reference.md](docs/aws-firewall-reference.md) | All SG rules, IAM permissions, route tables, and a full traffic matrix |
+| [docs/vpc.md](docs/vpc.md) | VPC networking — CIDR, subnets, IGW, NAT, route tables, endpoints, peering, and flow logs |
 | [docs/s3-security.md](docs/s3-security.md) | S3 bucket policies, Block Public Access, encryption, and access control |
 | [docs/security-analysis.md](docs/security-analysis.md) | Threat model, IAM reasoning, IMDSv2, and defense-in-depth breakdown |
 | [docs/nacl-vs-sg.md](docs/nacl-vs-sg.md) | Stateful vs. stateless firewalls, rule evaluation order, packet walkthrough |
