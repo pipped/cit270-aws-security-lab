@@ -1,0 +1,88 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowEC2ReadAndLaunch",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:RunInstances",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "ec2:TerminateInstances",
+        "ec2:CreateTags",
+        "ec2:GetConsoleOutput"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "AllowSecurityGroupManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSecurityGroupRules"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowKeyPairManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateKeyPair",
+        "ec2:DeleteKeyPair",
+        "ec2:DescribeKeyPairs",
+        "ec2:ImportKeyPair"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowIAMRolePassToEC2",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/cit270-lab-ec2-role",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ec2.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "AllowIAMReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRoles",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetPolicy",
+        "iam:ListInstanceProfiles",
+        "iam:GetInstanceProfile"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyIAMEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:DeleteUser",
+        "iam:AttachUserPolicy",
+        "iam:CreateAccessKey",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:CreateRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

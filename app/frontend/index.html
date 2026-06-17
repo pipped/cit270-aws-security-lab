@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CIT 270 — AWS Security Lab</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>CIT 270 Task Manager</h1>
+      <span id="tier-badge" class="badge">Connecting...</span>
+    </div>
+    <p class="subtitle">Deployed on AWS EC2 · Security Group firewall lab</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Add Task</h2>
+      <form id="task-form">
+        <input
+          id="task-input"
+          type="text"
+          placeholder="Enter a task..."
+          maxlength="200"
+          required
+          autocomplete="off"
+        />
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Tasks <span id="task-count" class="count"></span></h2>
+      <div id="task-list">
+        <p class="empty-state">Loading...</p>
+      </div>
+    </section>
+
+    <section class="card info-card">
+      <h2>Security Architecture</h2>
+      <div class="arch-grid">
+        <div class="arch-tier public">
+          <span class="tier-label">Web Tier (Public)</span>
+          <p>EC2 in public subnet</p>
+          <p>SG: 80/443 open to internet</p>
+          <p>SG: 3000 <strong>blocked</strong> from internet</p>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-tier private">
+          <span class="tier-label">App Tier (Private)</span>
+          <p>EC2 in private subnet</p>
+          <p>SG: 3000 open to <em>web-sg only</em></p>
+          <p>SG: no inbound from internet</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
